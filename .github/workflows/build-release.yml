@@ -1,0 +1,62 @@
+name: Build RustDesk release
+
+on:
+  schedule:
+    - cron: '0 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get latest RustDesk version
+        id: rustdesk
+        run: |
+          VERSION=$(curl -s https://api.github.com/repos/rustdesk/rustdesk/releases/latest | jq -r '.tag_name')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Latest RustDesk version: $VERSION"
+
+      - name: Check if we already have this version
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "v${{ steps.rustdesk.outputs.version }}" --repo ${{ github.repository }} > /dev/null 2>&1; then
+            echo "exists=yes" >> $GITHUB_OUTPUT
+            echo "Release already exists, skipping"
+          else
+            echo "exists=no" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Find Windows x86_64 asset URL
+        if: steps.check.outputs.exists == 'no'
+        id: asset
+        run: |
+          URL=$(curl -s https://api.github.com/repos/rustdesk/rustdesk/releases/latest \
+            | jq -r '.assets[] | select(.name | test("^rustdesk-.*-x86_64\\.exe$")) | .browser_download_url' \
+            | head -n 1)
+          if [ -z "$URL" ]; then
+            echo "Could not find Windows x86_64 exe asset"
+            exit 1
+          fi
+          echo "url=$URL" >> $GITHUB_OUTPUT
+
+      - name: Download and rename
+        if: steps.check.outputs.exists == 'no'
+        run: |
+          curl -L -o original.exe "${{ steps.asset.outputs.url }}"
+          cp original.exe "rustdesk-licensed-eyJob3N0IjoiaHVscC54bG1lZXN0ZXIubmwiLCJrZXkiOiJ3NnB3bVA2YmE3dDI4dlNxVTVta24ybTNpZlp4bnZtSDBxREJ0NjNxVU80PSJ9.exe"
+
+      - name: Create release
+        if: steps.check.outputs.exists == 'no'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v${{ steps.rustdesk.outputs.version }}" \
+            --repo ${{ github.repository }} \
+            --title "RustDesk ${{ steps.rustdesk.outputs.version }} voor XL Meester klanten" \
+            --notes "Automatisch gebouwd uit RustDesk ${{ steps.rustdesk.outputs.version }}" \
+            "rustdesk-licensed-eyJob3N0IjoiaHVscC54bG1lZXN0ZXIubmwiLCJrZXkiOiJ3NnB3bVA2YmE3dDI4dlNxVTVta24ybTNpZlp4bnZtSDBxREJ0NjNxVU80PSJ9.exe"
